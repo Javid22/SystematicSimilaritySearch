@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Semantic Match</title>
+<style>
+/* layout: centered single-column console — search rail on top, a ranked result stack below where
+   the best match is pulled visually off the baseline of the rest, like a statistical outlier */
+:root{
+  --bg:#ffffff;
+  --paper:#fafaf9;
+  --ink:#16140f;
+  --ink-dim:#6b685f;
+  --line:#e7e4db;
+  --accent:#d1452a;
+  --accent-ink:#ffffff;
+  --mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#121110; --paper:#191714; --ink:#f3f1ea; --ink-dim:#9b968a; --line:#2d2a24; --accent:#ff6a45; --accent-ink:#1a0d08;
+    color-scheme: dark;
+  }
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0; padding:0;}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:'Source Serif 4', Georgia, serif;
+  padding-left:max(16px, env(safe-area-inset-left,0px));
+  padding-right:max(16px, env(safe-area-inset-right,0px));
+}
+.wrap{
+  max-width:760px;
+  margin:0 auto;
+  padding-block: 48px 80px;
+}
+.eyebrow{
+  font-family:var(--mono);
+  font-size:11px;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  color:var(--ink-dim);
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--line);flex:none;}
+.eyebrow .dot.up{background:#3f9142;}
+.eyebrow .dot.down{background:var(--accent);}
+h1{
+  font-size:clamp(28px,5vw,40px);
+  line-height:1.08;
+  margin:10px 0 6px;
+  text-wrap:balance;
+  font-weight:600;
+  letter-spacing:-0.01em;
+}
+.sub{
+  color:var(--ink-dim);
+  font-size:15px;
+  max-width:60ch;
+  line-height:1.5;
+  margin:0 0 28px;
+}
+
+.panel{
+  background:var(--paper);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:18px;
+}
+
+.searchrow{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.searchrow input[type=text]{
+  flex:1 1 220px;
+  min-width:0;
+  font-family:'Source Serif 4', Georgia, serif;
+  font-size:17px;
+  padding:12px 14px;
+  border-radius:9px;
+  border:1px solid var(--line);
+  background:var(--bg);
+  color:var(--ink);
+}
+.searchrow input[type=text]:focus{outline:2px solid var(--accent); outline-offset:1px;}
+button.go{
+  font-family:var(--mono);
+  font-size:12px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  background:var(--ink);
+  color:var(--bg);
+  border:1px solid var(--ink);
+  border-radius:9px;
+  padding:0 20px;
+  cursor:pointer;
+}
+button.go:hover{opacity:.85;}
+button.go:disabled{opacity:.45;cursor:default;}
+
+.controls{
+  display:flex;
+  gap:18px;
+  flex-wrap:wrap;
+  margin-top:14px;
+  align-items:center;
+  font-family:var(--mono);
+  font-size:12px;
+  color:var(--ink-dim);
+}
+.controls label{display:flex; align-items:center; gap:6px;}
+.seg{display:flex; border:1px solid var(--line); border-radius:7px; overflow:hidden;}
+.seg button{
+  font-family:var(--mono);
+  font-size:11.5px;
+  letter-spacing:.03em;
+  padding:6px 11px;
+  background:transparent;
+  color:var(--ink-dim);
+  border:none;
+  cursor:pointer;
+  border-right:1px solid var(--line);
+}
+.seg button:last-child{border-right:none;}
+.seg button.active{background:var(--ink); color:var(--bg);}
+.controls input[type=range]{accent-color:var(--accent);}
+.controls .kval{color:var(--ink); min-width:1.4em; display:inline-block; text-align:right; font-variant-numeric:tabular-nums;}
+
+.apiline{
+  margin-top:10px;
+  font-family:var(--mono);
+  font-size:11px;
+  color:var(--ink-dim);
+  display:flex;
+  gap:8px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+.apiline input{
+  font-family:var(--mono);
+  font-size:11px;
+  background:transparent;
+  border:none;
+  border-bottom:1px dashed var(--line);
+  color:var(--ink-dim);
+  padding:2px 0;
+  width:230px;
+}
+.apiline input:focus{outline:none; border-bottom-color:var(--accent); color:var(--ink);}
+.statuspill{
+  font-family:var(--mono);
+  font-size:10.5px;
+  letter-spacing:.04em;
+  padding:2px 8px;
+  border-radius:99px;
+  border:1px solid var(--line);
+}
+.statuspill.ok{color:#3f9142; border-color:#3f914255;}
+.statuspill.bad{color:var(--accent); border-color:var(--accent)55;}
+
+.models{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+  gap:10px;
+  margin-top:22px;
+}
+.mcard{
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:12px 14px;
+}
+.mcard .name{font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-dim);}
+.mcard .name b{color:var(--ink);}
+.mcard dl{display:flex; justify-content:space-between; margin:8px 0 0; font-size:12.5px; font-family:var(--mono); color:var(--ink-dim);}
+.mcard dl b{color:var(--ink); font-weight:600;}
+
+.distrib{
+  margin-top:34px;
+}
+.distrib h2, .results h2{
+  font-family:var(--mono);
+  font-size:11px;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--ink-dim);
+  margin:0 0 12px;
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+}
+.distrib h2 span.n{color:var(--ink);}
+.track{
+  position:relative;
+  height:54px;
+  border-bottom:1px solid var(--line);
+}
+.tick{
+  position:absolute;
+  bottom:0;
+  width:2px;
+  background:var(--ink-dim);
+  opacity:.55;
+  transform:translateX(-1px);
+}
+.tick.outlier{
+  background:var(--accent);
+  opacity:1;
+  width:3px;
+}
+.tick .lbl{
+  position:absolute;
+  top:-18px;
+  left:50%;
+  transform:translateX(-50%);
+  font-family:var(--mono);
+  font-size:9.5px;
+  color:var(--accent);
+  white-space:nowrap;
+}
+.axis{
+  display:flex;
+  justify-content:space-between;
+  font-family:var(--mono);
+  font-size:10px;
+  color:var(--ink-dim);
+  margin-top:6px;
+}
+
+.results{margin-top:34px;}
+.hero-result{
+  border:1.5px solid var(--accent);
+  border-radius:14px;
+  padding:20px;
+  position:relative;
+  background:linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, var(--paper)), var(--paper));
+  margin-bottom:16px;
+}
+.hero-result .badge{
+  position:absolute;
+  top:-11px;
+  left:16px;
+  background:var(--accent);
+  color:var(--accent-ink);
+  font-family:var(--mono);
+  font-size:10px;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  padding:3px 9px;
+  border-radius:99px;
+}
+.rtitle{
+  font-size:19px;
+  font-weight:600;
+  margin:4px 0 4px;
+  line-height:1.3;
+}
+.rmeta{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  font-family:var(--mono);
+  font-size:11px;
+  color:var(--ink-dim);
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  margin-bottom:8px;
+}
+.rtype{
+  border:1px solid var(--line);
+  border-radius:5px;
+  padding:1px 6px;
+}
+.rdesc{
+  font-size:14.5px;
+  color:var(--ink-dim);
+  line-height:1.55;
+  margin:0 0 12px;
+}
+.scorebar-row{display:flex; align-items:center; gap:10px;}
+.scorebar{
+  flex:1;
+  height:6px;
+  border-radius:99px;
+  background:var(--line);
+  overflow:hidden;
+}
+.scorebar i{
+  display:block;
+  height:100%;
+  background:var(--ink-dim);
+  border-radius:99px;
+}
+.hero-result .scorebar i{background:var(--accent);}
+.scoreval{
+  font-family:var(--mono);
+  font-size:12.5px;
+  font-variant-numeric:tabular-nums;
+  min-width:3.6em;
+  text-align:right;
+}
+
+.rest-item{
+  display:grid;
+  grid-template-columns:28px 1fr auto;
+  gap:14px;
+  align-items:start;
+  padding:14px 4px;
+  border-bottom:1px solid var(--line);
+}
+.rest-item:last-child{border-bottom:none;}
+.rank{
+  font-family:var(--mono);
+  font-size:13px;
+  color:var(--ink-dim);
+  padding-top:2px;
+}
+.rest-item .rtitle{font-size:15.5px; margin:0 0 3px;}
+.rest-item .rdesc{font-size:13px; margin:0;}
+.rest-item .scorebar-row{min-width:120px; justify-content:flex-end;}
+.rest-item .scorebar{width:70px; flex:none;}
+
+.tokens{
+  margin-top:28px;
+  font-family:var(--mono);
+  font-size:11.5px;
+  color:var(--ink-dim);
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  align-items:center;
+}
+.tok{
+  border:1px solid var(--line);
+  border-radius:5px;
+  padding:2px 7px;
+}
+.tok.known{color:var(--ink); border-color:var(--ink-dim);}
+
+.empty, .error, .loading{
+  margin-top:40px;
+  padding:26px 20px;
+  text-align:center;
+  border:1px dashed var(--line);
+  border-radius:12px;
+  color:var(--ink-dim);
+  font-size:13.5px;
+}
+.error{border-color:var(--accent); color:var(--accent);}
+.loading{font-family:var(--mono); font-size:12px; letter-spacing:.04em;}
+
+footer{
+  margin-top:50px;
+  padding-top:16px;
+  border-top:1px solid var(--line);
+  font-family:var(--mono);
+  font-size:10.5px;
+  color:var(--ink-dim);
+  display:flex;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:8px;
+}
+code{font-family:var(--mono); background:var(--paper); border:1px solid var(--line); border-radius:4px; padding:1px 5px;}
+</style>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow"><span class="dot" id="pulseDot"></span> Systematic Similarity Search · live demo</div>
+  <h1>Find the nearest meaning, not the nearest word.</h1>
+  <p class="sub">Query your indexed documents by cosine similarity over Word2Vec or FastText embeddings. The highlighted card below the fold is the statistical outlier — the match sitting furthest above the pack.</p>
+
+  <div class="panel">
+    <div class="searchrow">
+      <input id="q" type="text" placeholder="e.g. arranged marriage preferences in South India" autocomplete="off">
+      <button class="go" id="goBtn">Search</button>
+    </div>
+    <div class="controls">
+      <label>Model
+        <span class="seg" id="modelSeg">
+          <button data-v="word2vec" class="active">word2vec</button>
+          <button data-v="fasttext">fasttext</button>
+        </span>
+      </label>
+      <label>Top K <input id="topk" type="range" min="3" max="20" value="8"><span class="kval" id="topkVal">8</span></label>
+    </div>
+    <div class="apiline">
+      <span>API base</span>
+      <input id="apiBase" type="text" value="" placeholder="same origin" spellcheck="false">
+      <span class="statuspill" id="statusPill">checking…</span>
+    </div>
+  </div>
+
+  <div class="models" id="models"></div>
+
+  <div id="main"></div>
+
+  <footer>
+    <span>POST/GET <code>/search</code> · GET <code>/models</code> · GET <code>/health</code></span>
+    <span id="lastRun">—</span>
+  </footer>
+</div>
+
+<script>
+(function(){
+  const $ = s => document.querySelector(s);
+  const qInput = $('#q'), goBtn = $('#goBtn'), topk = $('#topk'), topkVal = $('#topkVal');
+  const apiBaseInput = $('#apiBase'), statusPill = $('#statusPill'), modelsEl = $('#models');
+  const mainEl = $('#main'), lastRun = $('#lastRun'), pulseDot = $('#pulseDot');
+  const modelSeg = $('#modelSeg');
+
+  let model = 'word2vec';
+
+  try{ const saved = localStorage.getItem('sss_api_base'); if(saved !== null) apiBaseInput.value = saved; }catch(e){}
+
+  function apiBase(){ return apiBaseInput.value.replace(/\/+$/,''); }
+
+  modelSeg.addEventListener('click', e => {
+    const b = e.target.closest('button'); if(!b) return;
+    [...modelSeg.children].forEach(c=>c.classList.remove('active'));
+    b.classList.add('active');
+    model = b.dataset.v;
+  });
+
+  topk.addEventListener('input', () => topkVal.textContent = topk.value);
+
+  apiBaseInput.addEventListener('change', () => {
+    try{ localStorage.setItem('sss_api_base', apiBaseInput.value); }catch(e){}
+    checkHealth();
+    loadModels();
+  });
+
+  function escapeHtml(s){
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  async function checkHealth(){
+    statusPill.textContent = 'checking…';
+    statusPill.className = 'statuspill';
+    try{
+      const r = await fetch(apiBase() + '/health');
+      if(!r.ok) throw new Error();
+      statusPill.textContent = 'api online';
+      statusPill.classList.add('ok');
+      pulseDot.className = 'dot up';
+    }catch(e){
+      statusPill.textContent = 'api unreachable';
+      statusPill.classList.add('bad');
+      pulseDot.className = 'dot down';
+    }
+  }
+
+  async function loadModels(){
+    modelsEl.innerHTML = '';
+    try{
+      const r = await fetch(apiBase() + '/models');
+      if(!r.ok) throw new Error();
+      const data = await r.json();
+      if(!data.length){
+        modelsEl.innerHTML = '<div class="empty">No models loaded on the server yet.</div>';
+        return;
+      }
+      modelsEl.innerHTML = data.map(m => `
+        <div class="mcard">
+          <div class="name">model · <b>${escapeHtml(m.name)}</b></div>
+          <dl><span>vocab</span><b>${m.vocabulary_size.toLocaleString()}</b></dl>
+          <dl><span>dims</span><b>${m.vector_size}</b></dl>
+          <dl><span>documents</span><b>${m.documents_indexed.toLocaleString()}</b></dl>
+        </div>
+      `).join('');
+    }catch(e){
+      modelsEl.innerHTML = '';
+    }
+  }
+
+  function detectOutliers(results){
+    if(results.length < 2) return new Set(results.map(r=>r.rank));
+    const scores = results.map(r => r.similarity);
+    const mean = scores.reduce((a,b)=>a+b,0) / scores.length;
+    const sd = Math.sqrt(scores.reduce((a,b)=>a+(b-mean)**2,0) / scores.length) || 0.0001;
+    const out = new Set();
+    results.forEach(r => { if((r.similarity - mean) / sd > 0.6) out.add(r.rank); });
+    if(out.size === 0) out.add(results[0].rank);
+    return out;
+  }
+
+  function renderDistribution(results){
+    if(!results.length) return '';
+    const outliers = detectOutliers(results);
+    const scores = results.map(r=>r.similarity);
+    const min = Math.min(...scores), max = Math.max(...scores);
+    const span = (max - min) || 1;
+    const ticks = results.map(r => {
+      const pct = ((r.similarity - min) / span) * 86 + 4;
+      const isOut = outliers.has(r.rank);
+      return `<div class="tick${isOut?' outlier':''}" style="left:${pct}%">${isOut ? `<span class="lbl">${r.similarity.toFixed(2)}</span>` : ''}</div>`;
+    }).join('');
+    return `
+      <div class="distrib">
+        <h2>Similarity spread <span class="n">${results.length} results</span></h2>
+        <div class="track">${ticks}</div>
+        <div class="axis"><span>${min.toFixed(3)}</span><span>cosine similarity</span><span>${max.toFixed(3)}</span></div>
+      </div>
+    `;
+  }
+
+  function scorePct(sim, maxSim){
+    return Math.max(4, Math.min(100, (sim / (maxSim || 1)) * 100));
+  }
+
+  function renderResults(data){
+    const { results, tokens, known_tokens, query } = data;
+
+    if(!results.length){
+      mainEl.innerHTML = `
+        <div class="empty">No vocabulary overlap for "${escapeHtml(query)}". None of its tokens exist in the ${escapeHtml(data.model)} model.</div>
+        ${renderTokens(tokens, known_tokens)}
+      `;
+      return;
+    }
+
+    const outliers = detectOutliers(results);
+    const maxSim = Math.max(...results.map(r=>r.similarity));
+    const hero = results[0];
+    const rest = results.slice(1);
+    const heroIsOutlier = outliers.has(hero.rank);
+
+    mainEl.innerHTML = `
+      ${renderDistribution(results)}
+      <div class="results">
+        <h2>Ranked matches</h2>
+        <div class="hero-result">
+          <span class="badge">${heroIsOutlier ? 'strongest match · outlier' : 'top match'}</span>
+          <div class="rmeta"><span>rank 01</span>${hero.type ? `<span class="rtype">${escapeHtml(hero.type)}</span>` : ''}</div>
+          <div class="rtitle">${escapeHtml(hero.title)}</div>
+          <p class="rdesc">${escapeHtml(hero.description || 'No description available.')}</p>
+          <div class="scorebar-row">
+            <div class="scorebar"><i style="width:${scorePct(hero.similarity, maxSim)}%"></i></div>
+            <span class="scoreval">${hero.similarity.toFixed(4)}</span>
+          </div>
+        </div>
+        ${rest.map(r => `
+          <div class="rest-item">
+            <span class="rank">${String(r.rank).padStart(2,'0')}${outliers.has(r.rank) ? ' ●' : ''}</span>
+            <div>
+              <div class="rtitle">${escapeHtml(r.title)}${r.type ? ` <span class="rtype" style="font-size:10px;vertical-align:middle;">${escapeHtml(r.type)}</span>` : ''}</div>
+              <p class="rdesc">${escapeHtml(r.description || 'No description available.')}</p>
+            </div>
+            <div class="scorebar-row">
+              <div class="scorebar"><i style="width:${scorePct(r.similarity, maxSim)}%"></i></div>
+              <span class="scoreval">${r.similarity.toFixed(4)}</span>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      ${renderTokens(tokens, known_tokens)}
+    `;
+  }
+
+  function renderTokens(tokens, known){
+    if(!tokens || !tokens.length) return '';
+    const knownSet = new Set(known || []);
+    return `
+      <div class="tokens">
+        <span>parsed tokens →</span>
+        ${tokens.map(t => `<span class="tok${knownSet.has(t)?' known':''}">${escapeHtml(t)}</span>`).join('')}
+      </div>
+    `;
+  }
+
+  async function runSearch(){
+    const query = qInput.value.trim();
+    if(!query) return;
+    goBtn.disabled = true;
+    mainEl.innerHTML = '<div class="loading">searching ' + escapeHtml(model) + ' index…</div>';
+    try{
+      const url = `${apiBase()}/search?query=${encodeURIComponent(query)}&model=${encodeURIComponent(model)}&top_k=${encodeURIComponent(topk.value)}`;
+      const r = await fetch(url);
+      const body = await r.json();
+      if(!r.ok) throw new Error(body.detail || 'Request failed');
+      renderResults(body);
+      lastRun.textContent = `last query: "${query}" · ${model} · top ${topk.value} · ${new Date().toLocaleTimeString()}`;
+    }catch(e){
+      mainEl.innerHTML = `<div class="error">${escapeHtml(e.message || 'Could not reach the API. Check the base URL and that the server is running.')}</div>`;
+    }finally{
+      goBtn.disabled = false;
+    }
+  }
+
+  goBtn.addEventListener('click', runSearch);
+  qInput.addEventListener('keydown', e => { if(e.key === 'Enter') runSearch(); });
+
+  checkHealth();
+  loadModels();
+})();
+</script>
+</body>
+</html>
