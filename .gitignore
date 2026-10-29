@@ -1,0 +1,20 @@
+# Environment variables
+.env
+
+# Python virtual environments
+.venv/
+.venv313/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
+
+# Large model artifacts
+models/*.pkl
+
+# Claude
+.claude/
